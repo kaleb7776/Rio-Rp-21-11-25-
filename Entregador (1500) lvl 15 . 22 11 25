@@ -1,0 +1,476 @@
+-- LocalScript (StarterPlayerScripts)
+-- Farm Entregador (feito por Bec) — tema: Amarelo (principal), Azul (secundário), Preto (terciário)
+-- Funcional: vai entre dois pontos, segura prompts por 6s, UI arrastável/minimizar/iniciar/parar.
+
+-- Services
+local Players = game:GetService("Players")
+local PathfindingService = game:GetService("PathfindingService")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+-- ===== CORES DO TEMA =====
+local COLOR_PRIMARY   = Color3.fromRGB(255, 204, 0)   -- Amarelo (principal)
+local COLOR_SECONDARY = Color3.fromRGB(0, 120, 255)   -- Azul (secundário)
+local COLOR_TERTIARY  = Color3.fromRGB(12, 12, 12)    -- Preto (terciário)
+local COLOR_TEXT_DARK = Color3.fromRGB(18,18,18)
+local COLOR_TEXT_LIGHT= Color3.fromRGB(240,240,240)
+
+-- ===== CONFIG =====
+local PONTO_A = Vector3.new(-1784, 4, -543)
+local PONTO_B = Vector3.new(-1851, 4, -556)
+
+local REACH_DISTANCE = 6
+local PROMPT_SEARCH_RADIUS = 12
+local WAIT_AFTER_ARRIVAL = 2
+local HOLD_DURATION = 6
+local WAIT_AFTER_HOLD = 3
+local PATH_ATTEMPTS = 2
+
+-- ===== UI (adaptada com cores) =====
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "FarmEntregadorGui"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = player:WaitForChild("PlayerGui")
+
+local mainFrame = Instance.new("Frame")
+mainFrame.Name = "Main"
+mainFrame.Size = UDim2.new(0, 360, 0, 160)
+mainFrame.Position = UDim2.new(0.5, -180, 0.08, 0)
+mainFrame.AnchorPoint = Vector2.new(0.5, 0)
+mainFrame.BackgroundColor3 = COLOR_TERTIARY -- fundo preto
+mainFrame.BorderSizePixel = 0
+mainFrame.Parent = screenGui
+
+local uic = Instance.new("UICorner")
+uic.CornerRadius = UDim.new(0, 12)
+uic.Parent = mainFrame
+
+-- Top bar (serve como área de drag e contém título + minimizar)
+local topBar = Instance.new("Frame")
+topBar.Name = "TopBar"
+topBar.Size = UDim2.new(1, 0, 0, 48)
+topBar.Position = UDim2.new(0, 0, 0, 0)
+topBar.BackgroundColor3 = COLOR_PRIMARY -- barra amarela
+topBar.BorderSizePixel = 0
+topBar.Parent = mainFrame
+
+local title = Instance.new("TextLabel")
+title.Name = "Title"
+title.Text = "Farm Entregador"
+title.Font = Enum.Font.GothamBold
+title.TextSize = 20
+title.Size = UDim2.new(0.75, -16, 1, 0)
+title.Position = UDim2.new(0, 12, 0, 0)
+title.BackgroundTransparency = 1
+title.TextColor3 = COLOR_TEXT_DARK -- texto escuro sobre amarelo
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.Parent = topBar
+
+local byline = Instance.new("TextLabel")
+byline.Name = "Byline"
+byline.Text = "feito por Bec"
+byline.Font = Enum.Font.Gotham
+byline.TextSize = 11
+byline.Size = UDim2.new(0.75, -16, 0, 18)
+byline.Position = UDim2.new(0, 12, 0, 24)
+byline.BackgroundTransparency = 1
+byline.TextColor3 = COLOR_TEXT_DARK
+byline.TextXAlignment = Enum.TextXAlignment.Left
+byline.Parent = topBar
+
+local minimizeBtn = Instance.new("TextButton")
+minimizeBtn.Name = "Minimize"
+minimizeBtn.Text = "—"
+minimizeBtn.Font = Enum.Font.GothamBold
+minimizeBtn.TextSize = 20
+minimizeBtn.Size = UDim2.new(0, 36, 0, 28)
+minimizeBtn.Position = UDim2.new(1, -44, 0, 8)
+minimizeBtn.AnchorPoint = Vector2.new(0, 0)
+minimizeBtn.BackgroundColor3 = COLOR_SECONDARY -- botão azul
+minimizeBtn.TextColor3 = COLOR_TEXT_LIGHT
+minimizeBtn.Parent = topBar
+minimizeBtn.AutoButtonColor = true
+minimizeBtn.BorderSizePixel = 0
+local minCorner = Instance.new("UICorner", minimizeBtn)
+minCorner.CornerRadius = UDim.new(0,8)
+
+-- Status label
+local statusLabel = Instance.new("TextLabel")
+statusLabel.Name = "Status"
+statusLabel.Text = "Status: parado"
+statusLabel.Font = Enum.Font.Gotham
+statusLabel.TextSize = 14
+statusLabel.Size = UDim2.new(1, -24, 0, 22)
+statusLabel.Position = UDim2.new(0, 12, 0, 64)
+statusLabel.BackgroundTransparency = 1
+statusLabel.TextColor3 = COLOR_TEXT_LIGHT
+statusLabel.Parent = mainFrame
+
+-- Start / Stop buttons
+local startBtn = Instance.new("TextButton")
+startBtn.Name = "Start"
+startBtn.Text = "Iniciar"
+startBtn.Font = Enum.Font.GothamBold
+startBtn.TextSize = 16
+startBtn.Size = UDim2.new(0.46, -10, 0, 36)
+startBtn.Position = UDim2.new(0.02, 0, 0, 100)
+startBtn.BackgroundColor3 = COLOR_PRIMARY -- amarelo
+startBtn.TextColor3 = COLOR_TEXT_DARK
+startBtn.Parent = mainFrame
+startBtn.BorderSizePixel = 0
+local startCorner = Instance.new("UICorner", startBtn)
+startCorner.CornerRadius = UDim.new(0,8)
+
+local stopBtn = Instance.new("TextButton")
+stopBtn.Name = "Stop"
+stopBtn.Text = "Parar"
+stopBtn.Font = Enum.Font.GothamBold
+stopBtn.TextSize = 16
+stopBtn.Size = UDim2.new(0.46, -10, 0, 36)
+stopBtn.Position = UDim2.new(0.52, 0, 0, 100)
+stopBtn.BackgroundColor3 = COLOR_SECONDARY -- azul
+stopBtn.TextColor3 = COLOR_TEXT_LIGHT
+stopBtn.Parent = mainFrame
+stopBtn.BorderSizePixel = 0
+local stopCorner = Instance.new("UICorner", stopBtn)
+stopCorner.CornerRadius = UDim.new(0,8)
+
+-- Hover tweak (pequena animação)
+local function tweenButtonOnHover(btn, hoverColor)
+    btn.MouseEnter:Connect(function()
+        TweenService:Create(btn, TweenInfo.new(0.12), {Size = btn.Size + UDim2.new(0, 4, 0, 4)}):Play()
+    end)
+    btn.MouseLeave:Connect(function()
+        TweenService:Create(btn, TweenInfo.new(0.12), {Size = btn.Size - UDim2.new(0, 4, 0, 4)}):Play()
+    end)
+end
+tweenButtonOnHover(startBtn)
+tweenButtonOnHover(stopBtn)
+tweenButtonOnHover(minimizeBtn)
+
+-- ===== make draggable (by topBar) =====
+do
+    local dragging = false
+    local dragInput, dragStart, startPos
+
+    local function update(input)
+        local delta = input.Position - dragStart
+        mainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+
+    topBar.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = mainFrame.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
+
+    topBar.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and (input == dragInput) then
+            pcall(update, input)
+        end
+    end)
+end
+
+-- minimize / restore
+local minimized = false
+local normalSize = mainFrame.Size
+local normalPos = mainFrame.Position
+
+local function minimize()
+    if minimized then return end
+    minimized = true
+    for _, child in ipairs(mainFrame:GetChildren()) do
+        if child ~= topBar then
+            child.Visible = false
+        end
+    end
+    TweenService:Create(mainFrame, TweenInfo.new(0.18), {Size = UDim2.new(0, 360, 0, 48)}):Play()
+    minimizeBtn.Text = "+"
+end
+
+local function restore()
+    if not minimized then return end
+    minimized = false
+    TweenService:Create(mainFrame, TweenInfo.new(0.18), {Size = normalSize}):Play()
+    delay(0.18, function()
+        for _, child in ipairs(mainFrame:GetChildren()) do
+            child.Visible = true
+        end
+        minimizeBtn.Text = "—"
+    end)
+end
+
+minimizeBtn.MouseButton1Click:Connect(function()
+    if minimized then restore() else minimize() end
+end)
+
+-- ===== util: prompts =====
+local function getPromptBasePosition(prompt)
+    if not prompt or not prompt.Parent then return nil end
+    local p = prompt.Parent
+    if p:IsA("BasePart") then return p.Position end
+    if p:IsA("Model") then
+        if p.PrimaryPart then return p.PrimaryPart.Position end
+        for _, d in ipairs(p:GetDescendants()) do
+            if d:IsA("BasePart") then return d.Position end
+        end
+    else
+        for _, d in ipairs(p:GetDescendants()) do
+            if d:IsA("BasePart") then return d.Position end
+        end
+    end
+    return nil
+end
+
+local function findNearestPromptNearPoint(point, radius)
+    local nearest, nd = nil, math.huge
+    for _, desc in ipairs(workspace:GetDescendants()) do
+        if desc:IsA("ProximityPrompt") and desc.Enabled then
+            local pos = getPromptBasePosition(desc)
+            if pos then
+                local d = (pos - point).Magnitude
+                if d <= radius and d < nd then
+                    nearest = desc
+                    nd = d
+                end
+            end
+        end
+    end
+    return nearest
+end
+
+-- hold logic: InputHoldBegin/End preferred, fallback fireproximityprompt loop
+local function holdPrompt(prompt, holdTime)
+    if not prompt then return false, "prompt nil" end
+    if not prompt.Enabled then return false, "prompt desabilitado" end
+
+    -- 1) InputHoldBegin/End
+    local ok, err = pcall(function()
+        if typeof(prompt.InputHoldBegin) == "function" and typeof(prompt.InputHoldEnd) == "function" then
+            prompt:InputHoldBegin()
+            local t0 = tick()
+            while tick() - t0 < holdTime do
+                wait(0.12)
+            end
+            prompt:InputHoldEnd()
+            return true
+        end
+    end)
+    if ok and err ~= false then
+        return true, "InputHoldBegin/End usado"
+    end
+
+    -- 2) fallback: loop fireproximityprompt durante hold
+    local fired = false
+    local ok2, err2 = pcall(function()
+        local t0 = tick()
+        while tick() - t0 < holdTime do
+            if type(fireproximityprompt) == "function" then
+                pcall(function() fireproximityprompt(prompt, 0) end)
+                fired = true
+            elseif type(PressNearestProximity) == "function" then
+                pcall(function() PressNearestProximity() end)
+                fired = true
+            elseif type(_G) == "table" and type(_G.PressNearestProximity) == "function" then
+                pcall(function() _G.PressNearestProximity() end)
+                fired = true
+            end
+            wait(0.35)
+        end
+    end)
+    if ok2 and fired then
+        return true, "fireproximityprompt loop usado"
+    end
+
+    -- 3) tentativa única
+    local ok3, err3 = pcall(function()
+        if type(fireproximityprompt) == "function" then
+            fireproximityprompt(prompt, 0)
+        end
+    end)
+    if ok3 then return true, "fireproximityprompt único" end
+
+    return false, err or err2 or err3 or "falha ao acionar prompt"
+end
+
+-- ===== movement: Pathfinding com fallback MoveTo =====
+local function moveToPosition(character, targetPos)
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    local root = character and character:FindFirstChild("HumanoidRootPart")
+    if not humanoid or not root then return false, "sem humanoid/HRP" end
+
+    local ok, path = pcall(function()
+        local p = PathfindingService:CreatePath({AgentRadius = 2, AgentHeight = 5, AgentCanJump = true})
+        p:ComputeAsync(root.Position, targetPos)
+        return p
+    end)
+
+    if ok and path and path.Status == Enum.PathStatus.Success then
+        local waypoints = path:GetWaypoints()
+        for _, wp in ipairs(waypoints) do
+            if wp.Action == Enum.PathWaypointAction.Jump then
+                humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+            end
+            local reached = false
+            humanoid:MoveTo(wp.Position)
+            local conn
+            conn = humanoid.MoveToFinished:Connect(function(r)
+                reached = true
+                conn:Disconnect()
+            end)
+            local t0 = tick()
+            while not reached and tick() - t0 < 8 do
+                wait(0.08)
+                if not character.Parent then return false, "character perdido" end
+            end
+        end
+        return true
+    else
+        -- fallback MoveTo
+        humanoid:MoveTo(targetPos)
+        local finished = false
+        local conn = humanoid.MoveToFinished:Connect(function(r) finished = true conn:Disconnect() end)
+        local t0 = tick()
+        while not finished and tick() - t0 < 12 do wait(0.1) end
+        if (root.Position - targetPos).Magnitude <= REACH_DISTANCE then
+            return true
+        end
+        return false, "não conseguiu chegar (fallback)"
+    end
+end
+
+-- ===== main loop =====
+local running = false
+local loopThread = nil
+
+local function updateStatus(txt)
+    statusLabel.Text = "Status: " .. tostring(txt)
+end
+
+local function stopLoop()
+    running = false
+    updateStatus("parado")
+end
+
+local function runLoop()
+    if running then return end
+    running = true
+    updateStatus("iniciando...")
+    loopThread = coroutine.create(function()
+        while running do
+            -- garantir character pronto
+            local character = player.Character or player.CharacterAdded:Wait()
+            while not character:FindFirstChild("HumanoidRootPart") or not character:FindFirstChildOfClass("Humanoid") do
+                wait(0.1)
+            end
+            local hrp = character:FindFirstChild("HumanoidRootPart")
+            local humanoid = character:FindFirstChildOfClass("Humanoid")
+
+            -- ir para A
+            updateStatus("indo para A")
+            pcall(function() moveToPosition(character, PONTO_A) end)
+
+            -- esperar proximidade
+            local t0 = tick()
+            while (hrp.Position - PONTO_A).Magnitude > REACH_DISTANCE and tick() - t0 < 12 and running do wait(0.12) end
+
+            -- espera ao chegar
+            updateStatus("esperando em A (" .. tostring(WAIT_AFTER_ARRIVAL) .. "s)")
+            t0 = tick()
+            while tick() - t0 < WAIT_AFTER_ARRIVAL and running do wait(0.12) end
+
+            -- procurar prompt A e segurar
+            updateStatus("procurando prompt A")
+            local promptA = findNearestPromptNearPoint(PONTO_A, PROMPT_SEARCH_RADIUS)
+            if promptA then
+                updateStatus("segurando prompt A (" .. tostring(HOLD_DURATION) .. "s)")
+                local ok, msg = holdPrompt(promptA, HOLD_DURATION)
+                updateStatus((ok and "sucesso A" or "falha A"))
+                -- esperar após hold
+                local tH = tick()
+                while tick() - tH < WAIT_AFTER_HOLD and running do wait(0.12) end
+            else
+                updateStatus("nenhum prompt A")
+            end
+
+            if not running then break end
+            wait(0.2)
+
+            -- ir para B
+            updateStatus("indo para B")
+            pcall(function() moveToPosition(character, PONTO_B) end)
+
+            -- esperar proximidade
+            local t1 = tick()
+            while (hrp.Position - PONTO_B).Magnitude > REACH_DISTANCE and tick() - t1 < 12 and running do wait(0.12) end
+
+            -- espera ao chegar
+            updateStatus("esperando em B (" .. tostring(WAIT_AFTER_ARRIVAL) .. "s)")
+            t1 = tick()
+            while tick() - t1 < WAIT_AFTER_ARRIVAL and running do wait(0.12) end
+
+            -- procurar prompt B e segurar
+            updateStatus("procurando prompt B")
+            local promptB = findNearestPromptNearPoint(PONTO_B, PROMPT_SEARCH_RADIUS)
+            if promptB then
+                updateStatus("segurando prompt B (" .. tostring(HOLD_DURATION) .. "s)")
+                local ok, msg = holdPrompt(promptB, HOLD_DURATION)
+                updateStatus((ok and "sucesso B" or "falha B"))
+                local tH2 = tick()
+                while tick() - tH2 < WAIT_AFTER_HOLD and running do wait(0.12) end
+            else
+                updateStatus("nenhum prompt B")
+            end
+
+            wait(0.4)
+        end
+        updateStatus("parado")
+    end)
+    coroutine.resume(loopThread)
+end
+
+-- ===== UI bindings =====
+startBtn.MouseButton1Click:Connect(function()
+    startBtn.BackgroundColor3 = Color3.fromRGB(230, 190, 20) -- ligeiro highlight amarelo ao clicar
+    if not running then runLoop() end
+end)
+
+stopBtn.MouseButton1Click:Connect(function()
+    startBtn.BackgroundColor3 = COLOR_PRIMARY
+    stopLoop()
+end)
+
+-- hotkeys: Esc = stop, M = minimize/restore, K = toggle start/stop
+UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if input.KeyCode == Enum.KeyCode.Escape then
+        stopLoop()
+    elseif input.KeyCode == Enum.KeyCode.M then
+        if minimized then restore() else minimize() end
+    elseif input.KeyCode == Enum.KeyCode.K then
+        if running then stopLoop() else runLoop() end
+    end
+end)
+
+-- entrance animation
+mainFrame.Position = mainFrame.Position - UDim2.new(0,0,0.08,0)
+TweenService:Create(mainFrame, TweenInfo.new(0.36, Enum.EasingStyle.Sine), {Position = mainFrame.Position + UDim2.new(0,0,0.08,0)}):Play()
+
+updateStatus("pronto")
